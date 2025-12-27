@@ -17,6 +17,13 @@ class AnswerKeyScanner:
         if img is None:
             raise ValueError("Image not found")
 
+        # Optimiization: Resize large images to avoid OOM on free tier
+        height, width = img.shape[:2]
+        if width > 1024:
+            scale = 1024 / width
+            new_height = int(height * scale)
+            img = cv2.resize(img, (1024, new_height), interpolation=cv2.INTER_AREA)
+
         # 1. Grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
@@ -28,15 +35,12 @@ class AnswerKeyScanner:
         # Invert binary image (text becomes white, background black)
         inverted = cv2.bitwise_not(binary)
         
-        # Detect Horizontal Lines
         horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 1))
         detect_horizontal = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
         
-        # Detect Vertical Lines
         vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 25))
         detect_vertical = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, vertical_kernel, iterations=2)
         
-        # Combine lines
         lines = cv2.addWeighted(detect_horizontal, 0.5, detect_vertical, 0.5, 0.0)
         
         # Threshold lines back to binary
