@@ -31,4 +31,5 @@ RUN mkdir -p uploads
 EXPOSE 5000
 
 # Run the app using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "api:app"]
+# OPTIMIZED FOR FREE TIER (512MB RAM): 1 Worker, 2 Threads, 120s Timeout
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "2", "--timeout", "120", "api:app"]
