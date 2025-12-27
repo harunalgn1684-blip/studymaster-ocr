@@ -5,12 +5,12 @@ import json
 import re
 
 class AnswerKeyScanner:
-    def __init__(self, tesseract_cmd='C:\\Program Files\\Tesseract-OCR\\tesseract.exe'):
-        try:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
-        except Exception as e:
-            # We don't print here to keep JSON output clean on stdout
-            pass
+    def __init__(self, tesseract_cmd=None):
+        if tesseract_cmd:
+            try:
+                pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+            except Exception as e:
+                pass
 
     def preprocess_image(self, image_path):
         """
