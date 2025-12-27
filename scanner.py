@@ -17,54 +17,30 @@ class AnswerKeyScanner:
         if img is None:
             raise ValueError("Image not found")
 
-        # Optimiization: Resize large images to avoid OOM on free tier
+        # EMERGENCY OPTIMIZATION: Max 600px width to prevent OOM
         height, width = img.shape[:2]
-        if width > 1024:
-            scale = 1024 / width
+        if width > 600:
+            scale = 600 / width
             new_height = int(height * scale)
-            img = cv2.resize(img, (1024, new_height), interpolation=cv2.INTER_AREA)
+            img = cv2.resize(img, (600, new_height), interpolation=cv2.INTER_AREA)
 
         # 1. Grayscale
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-        # 2. Adaptive Threshold to get binary image
+        # 2. Threshold
+        # Simple adaptive threshold
         binary = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                       cv2.THRESH_BINARY, 15, 2)
-
-        # 3. Grid Line Removal (Critical for Table/Grid OCR)
-        # Invert binary image (text becomes white, background black)
-        inverted = cv2.bitwise_not(binary)
+                                       cv2.THRESH_BINARY, 11, 2)
         
-        horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 1))
-        detect_horizontal = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
-        
-        vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 25))
-        detect_vertical = cv2.morphologyEx(inverted, cv2.MORPH_OPEN, vertical_kernel, iterations=2)
-        
-        lines = cv2.addWeighted(detect_horizontal, 0.5, detect_vertical, 0.5, 0.0)
-        
-        # Threshold lines back to binary
-        (thresh, lines_binary) = cv2.threshold(lines, 127, 255, cv2.THRESH_BINARY)
-        
-        # Subtract lines from the original inverted image
-        # This leaves text + noise, but removes the grid structure
-        clean_inverted = cv2.subtract(inverted, lines_binary)
-        
-        # Invert back to normal (Black text, White background)
-        clean_binary = cv2.bitwise_not(clean_inverted)
-        
-        # 4. Denoise
-        # Use a small median blur to remove salt-and-pepper noise from subtraction
-        denoised = cv2.medianBlur(clean_binary, 3)
-
-        return denoised
+        # Skip Grid Removal for stability (Memory Hog)
+        return binary
 
     def run(self, image_path):
         try:
             processed_img = self.preprocess_image(image_path)
             
             # 4. OCR Strategy (Tesseract LSTM)
-            # PSM 6: Assume a single uniform block of text (good for grids after line removal)
+            # PSM 6: Assume a single uniform block of text
             custom_config = r'--oem 1 --psm 6 -c tessedit_char_whitelist=0123456789ABCDE-'
             
             data = pytesseract.image_to_data(processed_img, config=custom_config, output_type=pytesseract.Output.DICT)
