@@ -103,10 +103,8 @@ class AnswerKeyScanner:
             processed_img = self.preprocess_image(image_path)
             
             # 4. OCR Strategy (Tesseract LSTM)
-            # Whitelist: Numbers + A-E. 
-            # Note: Headers (TURKCE etc) will be filtered out by whitelist.
-            # This follows "OCR'yi SADECE: Soru numaraları, A/B/C/D/E harfleri üzerinde çalıştır"
-            custom_config = r'--oem 1 --psm 6 -c tessedit_char_whitelist=0123456789ABCDE'
+            # Whitelist: Numbers + A-E + Hyphen for "1-A" formats
+            custom_config = r'--oem 1 --psm 6 -c tessedit_char_whitelist=0123456789ABCDE1234567890-'
             
             data = pytesseract.image_to_data(processed_img, config=custom_config, output_type=pytesseract.Output.DICT)
             
@@ -168,6 +166,15 @@ class AnswerKeyScanner:
                 # Replacement map
                 t = t.replace('8', 'B').replace('0', 'D').replace('€', 'E').replace('|', 'I')
                 
+                # Check for Combined Format "1-A" or "1A"
+                match = re.search(r'^(\d+)[-]?([ABCDE])$', t)
+                if match:
+                    item['split_q'] = match.group(1)
+                    item['split_a'] = match.group(2)
+                    item['type'] = 'COMBINED'
+                    norm_row.append(item)
+                    continue
+
                 is_digit = t.isdigit()
                 is_char = t in ['A', 'B', 'C', 'D', 'E']
                 
@@ -178,30 +185,45 @@ class AnswerKeyScanner:
             
             # 5. Smart Validation & Pairing
             i = 0
-            while i < len(norm_row) - 1:
+            while i < len(norm_row):
                 curr = norm_row[i]
-                next_item = norm_row[i+1]
                 
-                # Pair: Num + Ans
-                if curr['type'] == 'NUM' and next_item['type'] == 'ANS':
-                    q_num = curr['norm']
-                    ans = next_item['norm']
-                    conf = min(curr['conf'], next_item['conf']) / 100.0
+                # Case 1: Combined Token "1-C"
+                if curr.get('type') == 'COMBINED':
+                    q_num = curr['split_q']
+                    ans = curr['split_a']
+                    conf = curr['conf'] / 100.0
                     
-                    # Duplicate Handling: Max 1 answer per question.
-                    # "En koyu / en yüksek confidence olanı seç"
                     if q_num in processed_answers:
-                        existing_conf = processed_confidences[q_num]
-                        if conf > existing_conf:
+                        if conf > processed_confidences[q_num]:
                             processed_answers[q_num] = ans
                             processed_confidences[q_num] = conf
                     else:
                         processed_answers[q_num] = ans
                         processed_confidences[q_num] = conf
-                    
-                    i += 2 
-                else:
                     i += 1
+                    continue
+
+                # Case 2: Separate Tokens "1" then "C"
+                if i < len(norm_row) - 1:
+                    next_item = norm_row[i+1]
+                    if curr['type'] == 'NUM' and next_item['type'] == 'ANS':
+                        q_num = curr['norm']
+                        ans = next_item['norm']
+                        conf = min(curr['conf'], next_item['conf']) / 100.0
+                        
+                        if q_num in processed_answers:
+                            if conf > processed_confidences[q_num]:
+                                processed_answers[q_num] = ans
+                                processed_confidences[q_num] = conf
+                        else:
+                            processed_answers[q_num] = ans
+                            processed_confidences[q_num] = conf
+                        
+                        i += 2 
+                        continue
+                
+                i += 1
         
         # Sort output by question number
         final_answers = {}
